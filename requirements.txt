@@ -1,0 +1,8 @@
+beautifulsoup4
+chromadb
+lxml
+openpyxl
+pypdf
+python-docx
+python-pptx
+sentence-transformers

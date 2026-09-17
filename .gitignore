@@ -1,0 +1,22 @@
+# Secrets
+.env
+.env.*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Project data
+data/raw/
+data/extracted/
+data/processed/
+data/index/
+
+# Models / caches
+.cache/
+
+# IDE / OS
+.DS_Store
+Thumbs.db
