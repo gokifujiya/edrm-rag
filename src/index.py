@@ -14,9 +14,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CHUNKS_PATH = ROOT / "data" / "processed" / "edrm" / "chunks.jsonl"
 INDEX_DIR = ROOT / "data" / "index"
-COLLECTION = "edrm"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
 
 
@@ -49,19 +47,21 @@ def flatten_metadata(chunk: dict) -> dict:
     return meta
 
 
-def collection(reset: bool = False):
+def collection(corpus: str, reset: bool = False):
     import chromadb
 
-    INDEX_DIR.mkdir(parents=True, exist_ok=True)
-    client = chromadb.PersistentClient(path=str(INDEX_DIR))
+    INDEX_DIR.mkdir(parents = True, exist_ok = True)
+    client = chromadb.PersistentClient(path = str(INDEX_DIR))
+
     if reset:
         try:
-            client.delete_collection(COLLECTION)
+            client.delete_collection(corpus)
         except Exception:
             pass
+
     return client.get_or_create_collection(
-        name=COLLECTION,
-        metadata={"hnsw:space": "cosine"},
+        name = corpus,
+        metadata = {"hnsw:space": "cosine"},
     )
 
 
@@ -71,38 +71,46 @@ def embedder():
     return SentenceTransformer(MODEL_NAME)
 
 
-def build() -> None:
-    chunks = load_chunks(CHUNKS_PATH)
+def build(corpus: str) -> None:
+    chunks_path = ROOT / "data" / "processed" / corpus / "chunks.jsonl"
+
+    chunks = load_chunks(chunks_path)
     model = embedder()
-    coll = collection(reset=True)
+    coll = collection(corpus, reset=True)
 
     texts = [c["text"] for c in chunks]
     ids = [c["chunk_id"] for c in chunks]
     metadatas = [flatten_metadata(c) for c in chunks]
-    vectors = model.encode(texts, normalize_embeddings=True, show_progress_bar=True)
+
+    vectors = model.encode(
+        texts,
+        normalize_embeddings = True,
+        show_progress_bar = True,
+    )
 
     coll.add(
-        ids=ids,
-        documents=texts,
-        metadatas=metadatas,
-        embeddings=vectors.tolist(),
+        ids = ids,
+        documents = texts,
+        metadatas = metadatas,
+        embeddings = vectors.tolist(),
     )
+
     print(f"indexed {len(chunks)} chunks -> {INDEX_DIR}")
-    print(f"collection: {COLLECTION}")
+    print(f"collection: {corpus}")
     print(f"model: {MODEL_NAME}")
 
 
-def query(text: str, k: int = 5) -> None:
+def query(text: str, corpus: str, k: int = 5) -> None:
     model = embedder()
-    coll = collection(reset=False)
+    coll = collection(corpus, reset = False)
     if coll.count() == 0:
         raise SystemExit("empty index; run: python src/index.py")
 
-    vector = model.encode([text], normalize_embeddings=True)[0].tolist()
+    vector = model.encode([text], normalize_embeddings = True)[0].tolist()
     result = coll.query(
-        query_embeddings=[vector],
-        n_results=min(k, coll.count()),
-        include=["documents", "metadatas", "distances"],
+        query_embeddings = [vector],
+        n_results = min(k, coll.count()),
+        include = ["documents", "metadatas", "distances"],
     )
     docs = result["documents"][0]
     metas = result["metadatas"][0]
@@ -120,15 +128,33 @@ def query(text: str, k: int = 5) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Build or query the EDRM Chroma index")
-    parser.add_argument("command", nargs="?", default="build", choices=["build", "query"])
-    parser.add_argument("text", nargs="?", default="information governance digital debris")
-    parser.add_argument("-k", type=int, default=5)
+    parser = argparse.ArgumentParser(
+        description = "Build or query a local Chroma corpus"
+    )
+    parser.add_argument(
+        "command",
+        nargs = "?",
+        default = "build",
+        choices = ["build", "query"],
+    )
+    parser.add_argument(
+        "text",
+        nargs = "?",
+        default = "information governance digital debris",
+    )
+    parser.add_argument(
+        "--corpus",
+        default = "edrm",
+        help = "Corpus name under data/processed and Chroma collection name",
+    )
+    parser.add_argument("-k", type = int, default = 5)
+
     args = parser.parse_args()
+
     if args.command == "query":
-        query(args.text, k=args.k)
+        query(args.text, corpus = args.corpus, k = args.k)
     else:
-        build()
+        build(args.corpus)
 
 
 if __name__ == "__main__":

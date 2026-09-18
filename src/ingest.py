@@ -98,20 +98,38 @@ def chunk_text(text: str) -> list[str]:
         piece = text[start:end].strip()
         if piece:
             chunks.append(piece)
+
         if end >= len(text):
             break
-        start = max(end - CHUNK_OVERLAP, start + 1)
+
+        next_start = max(end - CHUNK_OVERLAP, start + 1)
+
+        # Avoid starting the overlap in the middle of a word.
+        if next_start > 0 and next_start < len(text):
+            while next_start < end and not text[next_start - 1].isspace():
+                next_start += 1
+
+        start = next_start
+
     return chunks
 
 
 def html_to_text(raw: str) -> str:
     from bs4 import BeautifulSoup
 
+    # Some archived web pages contain HTTP/MIME headers before the HTML.
+    # Remove everything before the first HTML markup when present.
+    html_start = re.search(r"(?i)<(?:!doctype\s+html|html\b)", raw)
+    if html_start:
+        raw = raw[html_start.start():]
+
     soup = BeautifulSoup(raw, "lxml")
+
+    # Remove non-content elements.
     for tag in soup(["script", "style", "noscript"]):
         tag.decompose()
-    return soup.get_text("\n", strip = True)
 
+    return soup.get_text("\n", strip = True)
 
 def parse_txt(path: Path) -> str:
     data = path.read_bytes()
