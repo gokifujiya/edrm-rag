@@ -8,6 +8,7 @@ Run from the repo root:
 
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import mailbox
@@ -19,7 +20,6 @@ from xml.etree import ElementTree as ET
 
 ROOT = Path(__file__).resolve().parents[1]
 EXTRACTED = ROOT / "data" / "extracted"
-DEFAULT_SOURCE = EXTRACTED / "EDRM specific data"
 PROCESSED = ROOT / "data" / "processed"
 DOCS_OUT = PROCESSED / "documents.jsonl"
 CHUNKS_OUT = PROCESSED / "chunks.jsonl"
@@ -304,11 +304,31 @@ def iter_source_files(source: Path) -> list[Path]:
 
 
 def main() -> None:
-    source = DEFAULT_SOURCE
+    parser = argparse.ArgumentParser(
+        description = "Parse extracted documents into JSONL documents and chunks."
+    )
+    parser.add_argument(
+        "--source",
+        default = "EDRM specific data",
+        help = "Source directory relative to data/extracted",
+    )
+    parser.add_argument(
+        "--corpus",
+        default = "edrm",
+        help = "Name used for the processed output directory",
+    )
+    args = parser.parse_args()
+
+    source = EXTRACTED / args.source
+
     if not source.exists():
         raise SystemExit(f"missing source: {source}\nrun extract.py first")
 
-    PROCESSED.mkdir(parents = True, exist_ok = True)
+    corpus_dir = PROCESSED / args.corpus
+    corpus_dir.mkdir(parents = True, exist_ok = True)
+
+    docs_out = corpus_dir / "documents.jsonl"
+    chunks_out = corpus_dir / "chunks.jsonl"
     files = iter_source_files(source)
     docs = []
     errors = []
@@ -342,20 +362,20 @@ def main() -> None:
                 }
             )
 
-    with DOCS_OUT.open("w", encoding = "utf-8") as fh:
+    with docs_out.open("w", encoding = "utf-8") as fh:
         for doc in docs:
             row = {k: v for k, v in doc.items() if k != "text"}
             row["chars"] = len(doc["text"])
             fh.write(json.dumps(row, ensure_ascii=False) + "\n")
 
-    with CHUNKS_OUT.open("w", encoding = "utf-8") as fh:
+    with chunks_out.open("w", encoding = "utf-8") as fh:
         for chunk in chunks:
             fh.write(json.dumps(chunk, ensure_ascii = False) + "\n")
 
     print(f"source: {source}")
     print(f"parsed files: {len(files)}")
-    print(f"documents: {len(docs)} -> {DOCS_OUT}")
-    print(f"chunks: {len(chunks)} -> {CHUNKS_OUT}")
+    print(f"documents: {len(docs)} -> {docs_out}")
+    print(f"chunks: {len(chunks)} -> {chunks_out}")
     print(f"errors: {len(errors)}")
     by_type: dict[str, int] = {}
     for doc in docs:

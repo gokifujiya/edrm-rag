@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-CHUNKS_PATH = ROOT / "data" / "processed" / "chunks.jsonl"
+CHUNKS_PATH = ROOT / "data" / "processed" / "edrm" / "chunks.jsonl"
 INDEX_DIR = ROOT / "data" / "index"
 COLLECTION = "edrm"
 MODEL_NAME = "sentence-transformers/all-MiniLM-L6-v2"
