@@ -1,4 +1,4 @@
 {
-  "python.defaultInterpreterPath": "C:\\Users\\gokif\\anaconda3\\python.exe",
+  "python.defaultInterpreterPath": "C:\\Users\\gokif\\anaconda3\\envs\\edrm-rag\\python.exe",
   "python.terminal.activateEnvironment": true
 }

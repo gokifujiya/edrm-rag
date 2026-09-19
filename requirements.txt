@@ -6,3 +6,4 @@ pypdf
 python-docx
 python-pptx
 sentence-transformers
+gradio
