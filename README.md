@@ -228,3 +228,9 @@ Possible extensions include:
 ## Purpose
 
 This project demonstrates an end-to-end local RAG architecture for document retrieval and grounded question answering, with particular emphasis on hybrid retrieval and quantitative evaluation of retrieval quality.
+
+## License
+
+The source code in this repository is licensed under the MIT License.
+
+The EDRM dataset, third-party models, libraries, and other external resources used by this project remain subject to their respective licenses and terms.
