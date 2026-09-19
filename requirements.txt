@@ -7,3 +7,4 @@ python-docx
 python-pptx
 sentence-transformers
 gradio
+rank-bm25

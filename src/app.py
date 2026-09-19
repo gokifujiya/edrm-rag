@@ -3,7 +3,8 @@ import html
 import re
 
 from rag import (
-    RETRIEVAL_CANDIDATES,
+    DENSE_K,
+    BM25_K,
     FINAL_RESULTS,
     retrieve,
     rerank,
@@ -50,13 +51,13 @@ def answer_question(question):
 
     candidates = retrieve(
         question,
-        n_results = RETRIEVAL_CANDIDATES,
+        n_results = DENSE_K + BM25_K,
     )
 
     hits = rerank(
         question,
         candidates,
-        n_results=FINAL_RESULTS,
+        n_results = FINAL_RESULTS,
     )
 
     prompt = build_prompt(question, hits)
@@ -72,6 +73,18 @@ def answer_question(question):
             question,
         )
 
+        vector_score = (
+            f"{hit['retrieval_score']:.3f}"
+            if hit["retrieval_score"] is not None
+            else "—"
+        )
+
+        bm25_score = (
+            f"{hit['bm25_score']:.3f}"
+            if hit["bm25_score"] is not None
+            else "—"
+        )
+
         context_parts.append(
             f"""### Source {number}
 
@@ -79,7 +92,9 @@ def answer_question(question):
 
 **Chunk:** `{hit["chunk_id"]}`
 
-**Vector similarity:** {hit["retrieval_score"]:.3f}
+**Vector similarity:** {vector_score}
+
+**BM25 score:** {bm25_score}
 
 **CrossEncoder score:** {hit["rerank_score"]:.3f}
 

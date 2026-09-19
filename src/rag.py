@@ -1,7 +1,9 @@
 from pathlib import Path
+import re
 
 import chromadb
 import requests
+from rank_bm25 import BM25Okapi
 from sentence_transformers import SentenceTransformer, CrossEncoder
 
 
@@ -12,50 +14,158 @@ COLLECTION = "edrm"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
 
-RETRIEVAL_CANDIDATES = 10
+DENSE_K = 10
+BM25_K = 10
+RRF_K = 60
 FINAL_RESULTS = 5
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 LLM_MODEL = "llama3.2"
 
 
-def retrieve(question: str, n_results: int = 5):
-    """Find the most relevant EDRM chunks."""
+def tokenize(text: str) -> list[str]:
+    return re.findall(r"\b\w+\b", text.lower())
+
+
+def reciprocal_rank_fusion(
+    dense_ids: list[str],
+    bm25_ids: list[str],
+    rrf_k: int = RRF_K,
+) -> list[str]:
+    scores = {}
+
+    for rank, chunk_id in enumerate(dense_ids, start=1):
+        scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.0 / (
+            rrf_k + rank
+        )
+
+    for rank, chunk_id in enumerate(bm25_ids, start=1):
+        scores[chunk_id] = scores.get(chunk_id, 0.0) + 1.0 / (
+            rrf_k + rank
+        )
+
+    return sorted(
+        scores,
+        key=scores.get,
+        reverse=True,
+    )
+
+
+def retrieve(question: str, n_results: int = 10):
+    """Retrieve EDRM chunks using dense search + BM25 + RRF."""
 
     model = SentenceTransformer(EMBEDDING_MODEL)
+
+    client = chromadb.PersistentClient(path=str(INDEX_DIR))
+    collection = client.get_collection(COLLECTION)
+
+    # ---------------------------------------------------------
+    # Dense retrieval
+    # ---------------------------------------------------------
 
     query_embedding = model.encode(
         [question],
         normalize_embeddings = True,
     )[0].tolist()
 
-    client = chromadb.PersistentClient(path = str(INDEX_DIR))
-    collection = client.get_collection(COLLECTION)
-
-    results = collection.query(
+    dense_result = collection.query(
         query_embeddings = [query_embedding],
-        n_results = n_results,
+        n_results = min(DENSE_K, collection.count()),
         include = ["documents", "metadatas", "distances"],
+    )
+
+    dense_ids = dense_result["ids"][0]
+
+    dense_scores = {
+        chunk_id: 1.0 - float(distance)
+        for chunk_id, distance in zip(
+            dense_ids,
+            dense_result["distances"][0],
+        )
+    }
+
+    # ---------------------------------------------------------
+    # Load corpus for BM25
+    # ---------------------------------------------------------
+
+    corpus_data = collection.get(
+        include=["documents", "metadatas"],
+    )
+
+    corpus_ids = corpus_data["ids"]
+    corpus_documents = corpus_data["documents"]
+    corpus_metadatas = corpus_data["metadatas"]
+
+    documents_by_id = {
+        chunk_id: document
+        for chunk_id, document in zip(
+            corpus_ids,
+            corpus_documents,
+        )
+    }
+
+    metadata_by_id = {
+        chunk_id: metadata
+        for chunk_id, metadata in zip(
+            corpus_ids,
+            corpus_metadatas,
+        )
+    }
+
+    # ---------------------------------------------------------
+    # BM25 retrieval
+    # ---------------------------------------------------------
+
+    tokenized_corpus = [
+        tokenize(document)
+        for document in corpus_documents
+    ]
+
+    bm25 = BM25Okapi(tokenized_corpus)
+
+    bm25_scores = bm25.get_scores(
+        tokenize(question)
+    )
+
+    bm25_ranked_indices = sorted(
+        range(len(bm25_scores)),
+        key=lambda i: bm25_scores[i],
+        reverse=True,
+    )[:BM25_K]
+
+    bm25_ids = [
+        corpus_ids[i]
+        for i in bm25_ranked_indices
+    ]
+
+    bm25_score_by_id = {
+        corpus_ids[i]: float(bm25_scores[i])
+        for i in bm25_ranked_indices
+    }
+
+    # ---------------------------------------------------------
+    # Reciprocal Rank Fusion
+    # ---------------------------------------------------------
+
+    fused_ids = reciprocal_rank_fusion(
+        dense_ids,
+        bm25_ids,
     )
 
     hits = []
 
-    for chunk_id, document, metadata, distance in zip(
-        results["ids"][0],
-        results["documents"][0],
-        results["metadatas"][0],
-        results["distances"][0],
-    ):
+    for chunk_id in fused_ids:
         hits.append(
             {
                 "chunk_id": chunk_id,
-                "text": document,
-                "metadata": metadata,
-                "score": 1 - distance,
+                "text": documents_by_id[chunk_id],
+                "metadata": metadata_by_id[chunk_id],
+                "score": dense_scores.get(chunk_id),
+                "bm25_score": bm25_score_by_id.get(chunk_id),
             }
         )
 
-    return hits
+    return hits[:n_results]
 
 
 def rerank(question: str, hits: list[dict], n_results: int = 5):
@@ -152,7 +262,7 @@ def main():
 
     candidates = retrieve(
         question,
-        n_results = RETRIEVAL_CANDIDATES,
+        n_results = DENSE_K + BM25_K,
     )
 
     print("Reranking retrieved chunks...")
