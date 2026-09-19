@@ -141,6 +141,29 @@ def parse_txt(path: Path) -> str:
     return data.decode("utf-8", errors = "replace")
 
 
+def looks_like_garbled_text(text: str) -> bool:
+    """Detect text that decoded successfully but is probably not readable prose."""
+    if not text.strip():
+        return True
+
+    sample = text[:10000]
+
+    letters = sum(c.isalpha() for c in sample)
+    punctuation = sum(
+        not c.isalnum() and not c.isspace()
+        for c in sample
+    )
+
+    total = len(sample)
+    if total == 0:
+        return True
+
+    letter_ratio = letters / total
+    punctuation_ratio = punctuation / total
+
+    return letter_ratio < 0.45 and punctuation_ratio > 0.25
+
+
 def parse_xlsx(path: Path) -> str:
     from openpyxl import load_workbook
 
@@ -154,6 +177,67 @@ def parse_xlsx(path: Path) -> str:
                 parts.append("\t".join(cells))
     wb.close()
     return "\n".join(parts)
+
+
+def parse_xlsx_ooxml(path: Path) -> str:
+    """Fallback XLSX parser using the underlying OOXML directly."""
+
+    ns = {
+        "main": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+    }
+
+    with zipfile.ZipFile(path) as zf:
+        names = zf.namelist()
+
+        # Shared strings
+        shared_strings = []
+
+        if "xl/sharedStrings.xml" in names:
+            root = ET.fromstring(zf.read("xl/sharedStrings.xml"))
+
+            for si in root.findall("main:si", ns):
+                parts = [
+                    node.text or ""
+                    for node in si.findall(".//main:t", ns)
+                ]
+                shared_strings.append("".join(parts))
+
+        output = []
+
+        # Read all worksheets, not only sheet1.
+        sheet_names = sorted(
+            name
+            for name in names
+            if name.startswith("xl/worksheets/")
+            and name.endswith(".xml")
+        )
+
+        for sheet_name in sheet_names:
+            root = ET.fromstring(zf.read(sheet_name))
+
+            for cell in root.findall(".//main:c", ns):
+                cell_type = cell.get("t")
+                value_node = cell.find("main:v", ns)
+
+                if value_node is None:
+                    continue
+
+                raw_value = value_node.text or ""
+
+                if cell_type == "s":
+                    try:
+                        value = shared_strings[int(raw_value)]
+                    except (ValueError, IndexError):
+                        continue
+                else:
+                    value = raw_value
+
+                value = value.strip()
+
+                if value:
+                    output.append(value)
+
+        return "\n".join(output)
 
 
 def parse_spreadsheet_xml(path: Path) -> str:
@@ -197,6 +281,32 @@ def parse_docx(path: Path) -> str:
         for row in table.rows:
             parts.append("\t".join(cell.text.strip() for cell in row.cells))
     return "\n".join(parts)
+
+
+def parse_word_ooxml(path: Path) -> str:
+    """Extract text from a Word OOXML package without executing macros."""
+    with zipfile.ZipFile(path) as zf:
+        xml = zf.read("word/document.xml")
+
+    root = ET.fromstring(xml)
+
+    ns = {
+        "w": "http://schemas.openxmlformats.org/wordprocessingml/2006/main"
+    }
+
+    paragraphs = []
+
+    for paragraph in root.findall(".//w:p", ns):
+        texts = [
+            node.text or ""
+            for node in paragraph.findall(".//w:t", ns)
+        ]
+
+        text = "".join(texts).strip()
+        if text:
+            paragraphs.append(text)
+
+    return "\n".join(paragraphs)
 
 
 def parse_pdf(path: Path) -> str:
@@ -281,11 +391,15 @@ def parse_file(path: Path) -> list[dict]:
     elif ext == ".xml":
         text = parse_spreadsheet_xml(path)
     elif ext in {".xlsx", ".xltx"}:
-        text = parse_xlsx(path)
-    elif ext == ".pptx":
-        text = parse_pptx(path)
-    elif ext in {".docx", ".docm", ".dotm"}:
+        try:
+            text = parse_xlsx(path)
+        except Exception as exc:
+            print(f"openpyxl failed for {path.name}; trying OOXML fallback: {exc}")
+            text = parse_xlsx_ooxml(path)
+    elif ext == ".docx":
         text = parse_docx(path)
+    elif ext in {".docm", ".dotm"}:
+        text = parse_word_ooxml(path)
     elif ext == ".pdf":
         text = parse_pdf(path)
     else:
@@ -347,6 +461,7 @@ def main() -> None:
 
     docs_out = corpus_dir / "documents.jsonl"
     chunks_out = corpus_dir / "chunks.jsonl"
+    errors_out = corpus_dir / "ingest_errors.jsonl"
     files = iter_source_files(source)
     docs = []
     errors = []
@@ -358,10 +473,24 @@ def main() -> None:
             print(f"skip {path.name}: {exc}")
             continue
         for doc in parsed:
-            if doc.get("text"):
-                docs.append(doc)
-            else:
-                errors.append({"path": str(path), "error": "empty text"})
+            text = doc.get("text", "")
+
+            if not text:
+                errors.append({
+                    "path": str(path),
+                    "error": "empty text",
+                })
+                continue
+
+            if looks_like_garbled_text(text):
+                errors.append({
+                    "path": str(path),
+                    "error": "garbled text",
+                })
+                print(f"skip {path.name}: garbled text")
+                continue
+
+            docs.append(doc)
 
     chunks = []
     for doc in docs:
@@ -390,11 +519,15 @@ def main() -> None:
         for chunk in chunks:
             fh.write(json.dumps(chunk, ensure_ascii = False) + "\n")
 
+    with errors_out.open("w", encoding = "utf-8") as fh:
+        for error in errors:
+            fh.write(json.dumps(error, ensure_ascii=False) + "\n")
+
     print(f"source: {source}")
     print(f"parsed files: {len(files)}")
     print(f"documents: {len(docs)} -> {docs_out}")
     print(f"chunks: {len(chunks)} -> {chunks_out}")
-    print(f"errors: {len(errors)}")
+    print(f"errors: {len(errors)} -> {errors_out}")
     by_type: dict[str, int] = {}
     for doc in docs:
         by_type[doc["file_type"]] = by_type.get(doc["file_type"], 0) + 1

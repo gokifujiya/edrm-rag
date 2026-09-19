@@ -2,7 +2,7 @@ from pathlib import Path
 
 import chromadb
 import requests
-from sentence_transformers import SentenceTransformer
+from sentence_transformers import SentenceTransformer, CrossEncoder
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,6 +10,10 @@ INDEX_DIR = ROOT / "data" / "index"
 
 COLLECTION = "edrm"
 EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+RERANK_MODEL = "cross-encoder/ms-marco-MiniLM-L6-v2"
+
+RETRIEVAL_CANDIDATES = 10
+FINAL_RESULTS = 5
 
 OLLAMA_URL = "http://localhost:11434/api/chat"
 LLM_MODEL = "llama3.2"
@@ -36,13 +40,15 @@ def retrieve(question: str, n_results: int = 5):
 
     hits = []
 
-    for document, metadata, distance in zip(
+    for chunk_id, document, metadata, distance in zip(
+        results["ids"][0],
         results["documents"][0],
         results["metadatas"][0],
         results["distances"][0],
     ):
         hits.append(
             {
+                "chunk_id": chunk_id,
                 "text": document,
                 "metadata": metadata,
                 "score": 1 - distance,
@@ -50,6 +56,30 @@ def retrieve(question: str, n_results: int = 5):
         )
 
     return hits
+
+
+def rerank(question: str, hits: list[dict], n_results: int = 5):
+    """Rerank retrieved chunks using a cross-encoder."""
+
+    model = CrossEncoder(RERANK_MODEL)
+
+    pairs = [
+        [question, hit["text"]]
+        for hit in hits
+    ]
+
+    scores = model.predict(pairs)
+
+    for hit, score in zip(hits, scores):
+        hit["retrieval_score"] = hit["score"]
+        hit["rerank_score"] = float(score)
+
+    hits.sort(
+        key = lambda hit: hit["rerank_score"],
+        reverse = True,
+    )
+
+    return hits[:n_results]
 
 
 def build_prompt(question: str, hits: list[dict]) -> str:
@@ -119,7 +149,19 @@ def main():
         return
 
     print("\nSearching EDRM documents...")
-    hits = retrieve(question)
+
+    candidates = retrieve(
+        question,
+        n_results = RETRIEVAL_CANDIDATES,
+    )
+
+    print("Reranking retrieved chunks...")
+
+    hits = rerank(
+        question,
+        candidates,
+        n_results = FINAL_RESULTS,
+    )
 
     prompt = build_prompt(question, hits)
 
@@ -140,8 +182,10 @@ def main():
 
         print(
             f"[Source {number}] "
-            f"score = {hit['score']:.3f}  "
-            f"{metadata.get('source_path', 'Unknown source')}"
+            f"vector={hit['retrieval_score']:.3f}  "
+            f"rerank={hit['rerank_score']:.3f}\n"
+            f"  chunk={hit['chunk_id']}\n"
+            f"  file={metadata.get('source_path', 'Unknown source')}"
         )
 
 
