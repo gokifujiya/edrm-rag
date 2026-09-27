@@ -115,6 +115,7 @@ edrm-rag/
 │   ├── processed/
 │   └── index/
 ├── eval/
+│   ├── edrm_evaluation_sample_queries_passages.xlsx
 │   └── edrm_queries.jsonl
 ├── src/
 │   ├── app.py
@@ -124,6 +125,9 @@ edrm-rag/
 │   ├── ingest.py
 │   ├── rag.py
 │   └── view_chunks.py
+├── .dockerignore
+├── Dockerfile
+├── LICENSE
 ├── requirements.txt
 └── README.md
 ```
