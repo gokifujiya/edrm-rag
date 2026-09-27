@@ -182,6 +182,36 @@ The Gradio interface is then available locally, normally at:
 http://127.0.0.1:7860
 ```
 
+## Docker
+
+The RAG application can also run inside Docker while Ollama runs on the host machine.
+
+Make sure Ollama is running and that the required model is available:
+
+```bash
+ollama pull llama3.2
+```
+
+Build the Docker image from the repository root:
+
+```bash
+docker build -t edrm-rag:v1 .
+```
+
+Run the container:
+
+```bash
+docker run --rm -p 7860:7860 -e OLLAMA_URL=http://host.docker.internal:11434/api/chat edrm-rag:v1
+```
+
+Then open:
+
+```text
+http://localhost:7860
+```
+
+The Docker container runs the RAG application, while requests for answer generation are sent to the Ollama server running on the host.
+
 ## Example Query
 
 ```text

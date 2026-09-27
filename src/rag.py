@@ -1,5 +1,6 @@
 from pathlib import Path
 import re
+import os
 
 import chromadb
 import requests
@@ -19,7 +20,10 @@ BM25_K = 10
 RRF_K = 60
 FINAL_RESULTS = 5
 
-OLLAMA_URL = "http://localhost:11434/api/chat"
+OLLAMA_URL = os.getenv(
+    "OLLAMA_URL",
+    "http://localhost:11434/api/chat",
+)
 LLM_MODEL = "llama3.2"
 
 
