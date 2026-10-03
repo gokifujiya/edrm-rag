@@ -6,6 +6,11 @@ The project combines dense semantic retrieval, BM25 lexical retrieval, Reciproca
 
 ![EDRM RAG Assistant](assets/edrm-rag-demo.png)
 
+## Demo and Dataset
+
+- **Video demonstration:** [Building an EDRM RAG Assistant](https://vimeo.com/1232577558?share=copy&fl=sv&fe=ci)
+- **Dataset:** [EDRM Micro Dataset](https://edrm.net/resources/data-sets-2/edrm-micro-datasets/)
+
 ## Architecture
 
 ```text
