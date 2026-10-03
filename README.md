@@ -4,6 +4,10 @@ A local Retrieval-Augmented Generation (RAG) system for querying the EDRM docume
 
 The project combines dense semantic retrieval, BM25 lexical retrieval, Reciprocal Rank Fusion (RRF), CrossEncoder reranking, and a locally running LLM through Ollama. A Gradio interface displays generated answers together with the retrieved source passages and retrieval scores.
 
+## Purpose
+
+This project demonstrates an end-to-end local RAG architecture for document retrieval and grounded question answering, with particular emphasis on hybrid retrieval and quantitative evaluation of retrieval quality.
+
 ![EDRM RAG Assistant](assets/edrm-rag-demo.png)
 
 ## Demo and Dataset
@@ -263,10 +267,6 @@ Possible extensions include:
 - LoRA/QLoRA fine-tuning of the generative LLM
 - larger legal document collections
 - retrieval and generation evaluation on additional legal-domain tasks
-
-## Purpose
-
-This project demonstrates an end-to-end local RAG architecture for document retrieval and grounded question answering, with particular emphasis on hybrid retrieval and quantitative evaluation of retrieval quality.
 
 ## License
 
